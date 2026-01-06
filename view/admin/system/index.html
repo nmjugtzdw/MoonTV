@@ -1,0 +1,142 @@
+{extend name="admin/layout" /}
+
+{block name="content"}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="px-6 py-5 border-b border-gray-50 flex justify-between items-center bg-gray-50/50">
+        <h3 class="text-lg font-bold text-gray-800 flex items-center">
+            <span class="w-1.5 h-5 bg-blue-500 rounded-full mr-3"></span>
+            公共公告与系统设置
+        </h3>
+        <div class="flex gap-3">
+            <button onclick="clearAnnouncement()" class="px-4 py-2 border border-red-200 text-red-500 hover:bg-red-50 rounded-lg transition-all text-sm font-medium">
+                清空公告
+            </button>
+            <button onclick="saveSettings()" id="saveBtn" class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-md transition-all flex items-center">
+                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                保存设置
+            </button>
+        </div>
+    </div>
+    
+    <div class="p-8">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-10">
+            <!-- 左侧：公告设置 -->
+            <div class="space-y-6">
+                <div>
+                    <h4 class="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4">公告编辑</h4>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">输入公告内容</label>
+                    <textarea id="announcement" rows="4" class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="请输入滚动公告内容..."></textarea>
+                    <p class="mt-2 text-xs text-gray-400">设置后将立即同步到所有用户的首页顶部喇叭。</p>
+                </div>
+
+                <div class="pt-4 border-t border-gray-100">
+                    <h4 class="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4">当前生效公告预览</h4>
+                    <div class="bg-gray-50 rounded-xl p-4 border border-dashed border-gray-200">
+                        <div class="flex items-center text-orange-500 mb-2">
+                            <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 24 24"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 4.86 6 7.42 6 10.5v5l-2 2v1h16v-1l-2-2z"/></svg>
+                            <span class="text-xs font-bold">首页实时显示效果：</span>
+                        </div>
+                        <div class="bg-white px-3 py-2 rounded border border-gray-100 shadow-sm overflow-hidden whitespace-nowrap relative h-8 flex items-center">
+                            <div class="text-sm text-gray-600" id="current-announcement-preview">载入中...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧：其他基础设置 -->
+            <div class="space-y-6">
+                <div>
+                    <h4 class="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4">基本信息</h4>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">网站名称</label>
+                            <input type="text" id="siteName" class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">首页默认数据源</label>
+                            <select id="homepageSource" class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                                <option value="douban">豆瓣推荐 (精选)</option>
+                                <option value="all">所有资源站 (最新)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentConfig = {};
+
+    $(document).ready(function() {
+        loadConfig();
+    });
+
+    function loadConfig() {
+        $.ajax({
+            url: '/api/admin/config/get?name=SiteConfig',
+            headers: {'Authorization': 'Bearer ' + localStorage.getItem('admin_token')},
+            success: function(res) {
+                if (res.code === 200 && res.data) {
+                    currentConfig = res.data;
+                    $('#announcement').val(res.data.Announcement || '');
+                    $('#current-announcement-preview').text(res.data.Announcement || '(当前未设置公告)');
+                    $('#siteName').val(res.data.SiteName || 'MoonTV');
+                    $('#homepageSource').val(res.data.HomepageSource || 'douban');
+                }
+            }
+        });
+    }
+
+    function clearAnnouncement() {
+        if (confirm('确定要清空顶部公告吗？清空后首页将不显示滚动喇叭内容。')) {
+            $('#announcement').val('');
+            saveSettings(true);
+        }
+    }
+
+    function saveSettings(isClear = false) {
+        const announcement = $('#announcement').val();
+        const siteName = $('#siteName').val();
+        const homepageSource = $('#homepageSource').val();
+
+        if (!siteName) return alert('网站名称不能为空');
+
+        const btn = $('#saveBtn');
+        btn.prop('disabled', true).text('保存中...');
+
+        // 合并配置
+        const newConfig = {
+            ...currentConfig,
+            Announcement: announcement,
+            SiteName: siteName,
+            HomepageSource: homepageSource
+        };
+
+        $.ajax({
+            url: '/api/admin/config/set',
+            method: 'POST',
+            headers: {
+                'Authorization': 'Bearer ' + localStorage.getItem('admin_token'),
+                'Content-Type': 'application/json'
+            },
+            data: JSON.stringify({
+                name: 'SiteConfig',
+                value: newConfig
+            }),
+            success: function(res) {
+                if (res.code === 200) {
+                    alert('设置保存成功');
+                    loadConfig();
+                } else {
+                    alert(res.msg || '保存失败');
+                }
+            },
+            complete: function() {
+                btn.prop('disabled', false).html('<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>保存设置');
+            }
+        });
+    }
+</script>
+{/block}

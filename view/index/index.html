@@ -1,0 +1,635 @@
+{extend name="layout" /}
+
+{block name="content"}
+<div class="space-y-4">
+    <!-- 移动端 Tab 栏 (Desktop隐藏) -->
+    <div class="md:hidden flex items-center justify-center pt-4 pb-2 sticky top-[50px] z-30">
+        <div class="bg-white/80 dark:bg-gray-800/80 backdrop-blur p-1 rounded-full inline-flex shadow-sm border border-gray-100 dark:border-gray-700">
+            <button class="tab-btn px-6 py-1.5 rounded-full text-xs font-bold bg-green-50 text-green-600 shadow-sm transition-all" data-target="home">首页</button>
+            <button class="tab-btn px-6 py-1.5 rounded-full text-xs font-medium text-gray-500 hover:text-gray-700 transition-all" data-target="favorites">收藏夹</button>
+        </div>
+    </div>
+
+    <!-- 去除背景色以显示全局渐变背景 -->
+    <div id="home-view" class="min-h-screen pt-4 px-1">
+        <div id="continueWatching" class="hidden mb-8 sm:mb-12">
+            <div class="flex items-center justify-between mb-4 px-3 sm:px-4">
+                <h2 class="text-lg sm:text-xl font-bold text-gray-900 dark:text-white tracking-tight">继续观看</h2>
+                <button onclick="clearHistory()" class="text-xs text-gray-400 hover:text-red-500 transition-colors">清空</button>
+            </div>
+            <div id="historyScroll" class="flex overflow-x-auto gap-3 sm:gap-4 px-3 sm:px-4 pb-4 -mb-4 snap-x scrollbar-hide scroll-smooth" style="scrollbar-width: none;"></div>
+        </div>
+
+        <div id="videoSections" class="pb-20 px-1">
+            <div id="loadingSkeleton" class="space-y-12 px-3">
+                <div v-for="i in 2">
+                    <div class="h-6 bg-gray-200 rounded mb-6 w-24"></div>
+                    <div class="flex gap-5 overflow-hidden"><div class="w-36 h-52 bg-gray-200 rounded-2xl flex-shrink-0" v-for="j in 4"></div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 收藏夹视图 -->
+    <div id="favorites-view" class="hidden min-h-screen pt-4 px-4 pb-20">
+        <div class="flex items-center gap-2 mb-6 px-1">
+            <h2 class="text-xl font-bold text-gray-800 dark:text-gray-200 border-l-4 border-green-500 pl-3 rounded-sm">我的收藏</h2>
+            <span class="text-xs text-gray-400" id="fav-count"></span>
+        </div>
+        
+        <div id="favoritesList" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 xl:grid-cols-8 gap-4 sm:gap-6">
+            <!-- JS 生成内容 -->
+        </div>
+        
+        <!-- 空状态 -->
+        <div id="fav-empty" class="hidden flex flex-col items-center justify-center py-20 text-gray-400">
+            <svg class="w-16 h-16 mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"></path></svg>
+            <p>还没有收藏任何视频</p>
+            <a href="/" onclick="switchIndexTab('home'); return false;" class="mt-4 px-6 py-2 bg-green-500 text-white rounded-full text-sm font-bold hover:bg-green-600 transition-colors">去逛逛</a>
+        </div>
+    </div>
+
+    <!-- 登录提示弹窗 -->
+    <div id="login-prompt-modal" class="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm hidden flex items-center justify-center p-4">
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden transform transition-all scale-100">
+            <div class="p-6 text-center">
+                <div class="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg class="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+                </div>
+                <h3 class="text-xl font-bold text-gray-900 dark:text-white mb-2">需要登录</h3>
+                <p class="text-gray-600 dark:text-gray-300 mb-6">登录后即可收藏喜欢的影片，随时查看观看记录</p>
+                
+                <div class="flex flex-col gap-3">
+                    <a href="/login" class="w-full py-3 bg-green-600 text-white font-bold rounded-xl shadow-lg hover:bg-green-700 transition-colors">立即登录</a>
+                    <button onclick="$('#login-prompt-modal').addClass('hidden')" class="w-full py-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-sm">稍后再说</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+$(document).ready(function() {
+    // 动态播放源映射表（从API获取）
+    let SRC_MAP = { 'lzi': '量子资源', 'bfzy': '暴风资源', 'dbm3u8': '豆瓣资源', 'hnm3u8': '红牛资源', 'mtzy': '茅台资源', 'ryzy': '如意资源' };
+    
+    // 从API加载完整的播放源配置
+    $.get('/api/config/sources').done(res => {
+        if (res && res.length) {
+            res.forEach(source => {
+                if (source.key && source.name) {
+                    SRC_MAP[source.key] = source.name;
+                }
+            });
+            console.log('播放源映射已加载:', SRC_MAP);
+            // 重新渲染历史记录以更新播放源名称
+            renderHistory(JSON.parse(localStorage.getItem('moontv_play_history') || '{}'));
+        }
+    });
+    
+    // 此处 categoryType 仅用于判断初始 Tab，不应用于推荐接口的数据过滤
+    const urlParams = new URLSearchParams(window.location.search);
+    const initialTab = urlParams.get('type') === 'favorites' ? 'favorites' : 'home';
+    // 实际用于推荐接口的类型参数（如果是 favorites 则回退到 all）
+    const recommendType = (urlParams.get('type') && urlParams.get('type') !== 'favorites') ? urlParams.get('type') : 'all';
+
+    // 注入桌面端顶部 Tab
+    const desktopTabs = `
+        <div class="bg-gray-100/80 dark:bg-gray-800/50 p-1 rounded-full inline-flex items-center gap-1">
+            <button class="tab-btn-desktop px-5 py-1.5 rounded-full text-sm font-bold shadow-sm bg-white text-green-600 transition-all" data-target="home">首页</button>
+            <button class="tab-btn-desktop px-5 py-1.5 rounded-full text-sm font-medium text-gray-500 hover:text-gray-900 hover:bg-white/50 transition-all" data-target="favorites">收藏夹</button>
+        </div>
+    `;
+    if(window.innerWidth >= 768) {
+        $('#header-center').html(desktopTabs);
+    }
+
+    window.switchIndexTab = function(t){
+        // Mobile updates
+        const ac = 'bg-green-50 text-green-600 shadow-sm font-bold';
+        $('.tab-btn').removeClass(ac).addClass('text-gray-500 font-medium');
+        $(`.tab-btn[data-target="${t}"]`).removeClass('text-gray-500 font-medium').addClass(ac);
+        
+        // Desktop updates
+        const acD = 'bg-white text-green-600 shadow-sm font-bold';
+        $('.tab-btn-desktop').removeClass(acD).addClass('text-gray-500 font-medium hover:text-gray-900 hover:bg-white/50');
+        $(`.tab-btn-desktop[data-target="${t}"]`).removeClass('text-gray-500 font-medium hover:text-gray-900 hover:bg-white/50').addClass(acD);
+
+        t === 'home' ? ($('#home-view').show(), $('#favorites-view').hide()) : ($('#home-view').hide(), $('#favorites-view').show(), loadFavorites());
+    };
+    
+    $('body').on('click', '.tab-btn, .tab-btn-desktop', function(){
+        switchIndexTab($(this).data('target'));
+    });
+
+    // 自动切换 Tab
+    if (initialTab === 'favorites') {
+        switchIndexTab('favorites');
+    }
+
+    // 加载观看历史：登录用户双向同步，游客从本地获取
+    function loadHistory() {
+        const token = localStorage.getItem('auth_token');
+        let localData = JSON.parse(localStorage.getItem('moontv_play_history') || '{}');
+        
+        if (token) {
+            // 登录用户：从服务器获取并合并
+            $.ajax({
+                url: '/api/playrecord',
+                headers: { 'Authorization': 'Bearer ' + token },
+                success: function(res) {
+                    if (res.code === 200 && res.data) {
+                        const serverData = res.data;
+                        let hasChanges = false;
+                        
+                        // 1. 合并策略：本地有且时间更新 -> 上传服务器；服务器有且时间更新 -> 更新本地
+                        // 将服务器数据合并到本地（以最新时间为准）
+                        Object.entries(serverData).forEach(([key, sItem]) => {
+                            const lItem = localData[key] || localData[sItem.sourceId]; // 兼容旧版key格式
+                            if (!lItem || sItem.time > lItem.time) {
+                                // 服务器更新，覆盖本地
+                                localData[key] = sItem;
+                                hasChanges = true;
+                            } else if (lItem.time > sItem.time) {
+                                // 本地更新，静默上传服务器
+                                uploadRecord(lItem);
+                            }
+                        });
+                        
+                        // 检查本地是否有服务器没有的新记录
+                        Object.entries(localData).forEach(([key, lItem]) => {
+                            if (!serverData[key]) {
+                                // 可能是新看的，上传服务器
+                                uploadRecord(lItem);
+                            }
+                        });
+                        
+                        if (hasChanges) {
+                            localStorage.setItem('moontv_play_history', JSON.stringify(localData));
+                        }
+                        
+                        // 使用合并后的最新数据渲染
+                        renderHistory(localData, true);
+                    } else {
+                        // 服务器为空或错误，显示本地数据并尝试上传
+                        if (Object.keys(localData).length > 0) {
+                            renderHistory(localData, true);
+                            // 理论上应该上传所有本地数据，但为避免风暴，暂不全量上传
+                        } else {
+                            $('#continueWatching').addClass('hidden');
+                        }
+                    }
+                },
+                error: function() {
+                    // 如果服务器请求失败，回退到本地数据
+                    renderHistory(localData, false);
+                }
+            });
+        } else {
+            // 游客：从本地获取
+            renderHistory(localData, false);
+        }
+    }
+    
+    // 能够静默上传单条记录
+    function uploadRecord(rec) {
+        const token = localStorage.getItem('auth_token');
+        if (!token || !rec) return;
+        $.post('/api/playrecord', {
+            source: rec.sourceKey,
+            id: rec.sourceId,
+            record: rec,
+            token: token
+        });
+    }
+
+    function renderHistory(h, isServerData = false) {
+        // 使用 Object.entries 获取 [key, value] 数组，然后按 value.time 排序
+        const items = Object.entries(h).sort((a,b) => b[1].time - a[1].time).slice(0, 10);
+        if (!items.length) {
+            $('#continueWatching').addClass('hidden');
+            return;
+        }
+        let html = '';
+        items.forEach(([key, it]) => {
+            const t = it.title || '未知', ep = it.nid !== undefined ? it.nid + 1 : 1;
+            const sn = SRC_MAP[(it.sourceKey||'').toLowerCase()] || it.sourceName || '1080资源';
+
+            html += `
+            <a href="/play/${it.sourceId}?source=${it.sourceKey}&nid=${it.nid||0}&title=${encodeURIComponent(t)}" class="block flex-shrink-0 w-24 sm:w-32 md:w-36 lg:w-40 snap-start group relative transition-all duration-300 hover:z-20">
+                <div class="relative aspect-[2/3] rounded-lg sm:rounded-xl bg-gray-200 shadow-sm overflow-hidden transition-all duration-300 group-hover:shadow-2xl group-hover:ring-4 group-hover:ring-green-500/20 group-hover:-translate-y-1">
+                    <img data-src="${it.poster}" class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 opacity-0 transition-opacity duration-300" onerror="this.src='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=='">
+                    
+                    <!-- 角标 -->
+                    <div class="absolute top-1 right-1 px-1.5 py-0.5 bg-[#10b981] text-white text-[10px] sm:text-xs font-bold rounded shadow-sm z-10">第${ep}集</div>
+                    
+                    <!-- 遮罩 -->
+                    <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-all duration-300 flex flex-col justify-between backdrop-blur-[2px]">
+                        <div class="flex-1 flex items-center justify-center">
+                            <div class="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center shadow-lg transform scale-50 group-hover:scale-100 transition-all duration-300 hover:bg-green-400 bubble-effect">
+                                <svg class="w-6 h-6 text-white fill-current ml-1" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                            </div>
+                        </div>
+                        <!-- 底部操作栏 -->
+                        <div class="w-full h-10 bg-black/40 backdrop-blur-md flex items-center justify-around text-white/80 translate-y-full group-hover:translate-y-0 transition-transform duration-300">
+                            <button class="delete-history-btn hover:text-red-500 p-2 transition-colors" title="删除记录" data-key="${key}"><svg class="w-5 h-5 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                            <button class="add-fav-btn hover:text-red-500 p-2 transition-colors" title="收藏" data-id="${it.sourceId}" data-source="${it.sourceKey}" data-title="${t}" data-poster="${it.poster}"><svg class="w-5 h-5 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg></button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mt-2 text-center px-0.5 transition-all duration-300 group-hover:translate-y-1">
+                    <h3 class="text-xs sm:text-sm font-semibold text-gray-800 dark:text-gray-200 line-clamp-1 group-hover:text-green-600 transition-colors tracking-tight mb-1.5">${t}</h3>
+                    <div class="inline-block px-2 py-0.5 border border-gray-300 dark:border-gray-600 rounded text-[10px] sm:text-xs text-gray-600 dark:text-gray-400 font-medium bg-white/50 dark:bg-gray-800/50">${sn}</div>
+                </div>
+            </a>`;
+        });
+        $('#historyScroll').html(html);
+        $('#continueWatching').removeClass('hidden');
+        if(window.MoonLazy) window.MoonLazy.refresh();
+
+        // 直接绑定事件，确保 stopPropagation 生效
+        $('#historyScroll .delete-history-btn').off('click').on('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            if(!confirm('确定移除该条记录吗？')) return false;
+
+            const key = $(this).data('key');
+            const token = localStorage.getItem('auth_token');
+            
+            // 1. 无论是否登录，首先从本地删除，避免同步逻辑再次上传
+            let localH = JSON.parse(localStorage.getItem('moontv_play_history') || '{}');
+            let source = '', id = '';
+            
+            if (localH[key]) {
+                source = localH[key].sourceKey;
+                id = localH[key].sourceId;
+                delete localH[key];
+                localStorage.setItem('moontv_play_history', JSON.stringify(localH));
+            } else if (key.includes('+')) {
+                // 尝试从 key 解析 source 和 id (如果是服务器数据生成的key)
+                const parts = key.split('+');
+                source = parts[0];
+                id = parts[1];
+                // 也要检查本地是否有以 sourceId 为 key 的旧数据并删除
+                if (localH[id]) delete localH[id];
+                localStorage.setItem('moontv_play_history', JSON.stringify(localH));
+            }
+
+            // 2. 如果是登录用户，发送服务器删除请求
+            if (token && source && id) {
+                $.ajax({
+                    url: '/api/playrecord',
+                    method: 'DELETE',
+                    headers: { 'Authorization': 'Bearer ' + token },
+                    data: { source: source, id: id },
+                    success: function() {
+                        // 服务器删除成功后，重新加载（此时本地和服务器都没了，不会复活）
+                        loadHistory();
+                    },
+                    error: function() {
+                        // 如果服务器删除失败，至少本地已经删了，重新渲染本地状态
+                        if (!isServerData) renderHistory(localH, false);
+                    }
+                });
+            } else {
+                // 游客或无法解析ID：直接重新渲染本地数据
+                renderHistory(localH, false);
+            }
+            return false;
+        });
+
+        $('#historyScroll .add-fav-btn').off('click').on('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const btn = $(this);
+            const token = localStorage.getItem('auth_token');
+            
+            // 如果未登录，显示登录提示弹窗而不是强制跳转
+            if (!token) {
+                $('#login-prompt-modal').removeClass('hidden');
+                return false;
+            }
+            
+            const rawData = {
+                id: btn.data('id'),
+                source: btn.data('source'),
+                title: btn.data('title'),
+                poster: btn.data('poster')
+            };
+            
+            // 后端需要 favorite 字段作为数据包
+            const postData = {
+                id: rawData.id,
+                source: rawData.source,
+                favorite: rawData,
+                token: token
+            };
+            
+            $.post('/api/favorite', postData, function(res) {
+                if (res.code === 200) {
+                    btn.addClass('text-red-500').find('svg').attr('fill', 'currentColor');
+                     if($('#favorites-view').is(':visible')) loadFavorites();
+                } else if (res.code === 401) {
+                    // 登录已过期，显示登录提示弹窗而不是强制跳转
+                    $('#login-prompt-modal').removeClass('hidden');
+                } else {
+                    alert(res.msg || '收藏失败');
+                }
+            }).fail(function() {
+                alert('网络请求失败');
+            });
+            return false;
+        });
+    }
+
+    // 渐进式加载：先加载首屏关键数据，然后异步加载剩余数据
+    let loadedCategories = new Set();
+    
+    function loadHomeData(isInitial = true) {
+        // 尝试从缓存读取
+        const cacheKey = `moontv_home_data_${recommendType}_${isInitial}`;
+        const cacheTimeKey = `${cacheKey}_time`;
+        const cachedData = sessionStorage.getItem(cacheKey);
+        const cacheTime = sessionStorage.getItem(cacheTimeKey);
+        
+        // 缓存有效时间：10分钟
+        if (cachedData && cacheTime && (Date.now() - parseInt(cacheTime) < 600000)) {
+            try {
+                const grouped = JSON.parse(cachedData);
+                renderCategories(grouped, isInitial);
+                if (isInitial) $('#loadingSkeleton').hide();
+                
+                // 如果是首屏加载且有缓存，就不自动加载第二屏了，除非用户滚动到底部
+                // 为了简化，这里我们仅当没有完整数据缓存时才加载第二屏
+                if (isInitial && !sessionStorage.getItem(`moontv_home_data_${recommendType}_false`)) {
+                     // 延迟加载剩余数据，减轻网络压力
+                     setTimeout(() => loadHomeData(false), 3000);
+                }
+                return;
+            } catch (e) {
+                console.warn('解析首页缓存失败:', e);
+            }
+        }
+
+        const limit = isInitial ? 60 : 100; // 减少请求数量：首屏60，后续100 (原80/160)
+        
+        $.ajax({
+            url: '/api/recommend', // API端点（映射到 Home/index，支持豆瓣优先配置）
+            data: { type: recommendType, limit: limit },
+            success: (res) => {
+                if (res.code !== 200) return;
+                const grouped = { movie: [], tv: [], anime: [], variety: [], shorts: [] };
+                res.data.forEach(v => {
+                    const c = (v.type || v.vod_class || '').toLowerCase();
+                    if (c.includes('电影') || c === 'movie') grouped.movie.push(v);
+                    else if (c.includes('动漫') || c === 'anime') grouped.anime.push(v);
+                    else if (c.includes('综艺') || c === 'variety') grouped.variety.push(v);
+                    else if (c.includes('短剧') || c === 'shorts') grouped.shorts.push(v);
+                    else grouped.tv.push(v);
+                });
+                
+                renderCategories(grouped, isInitial);
+                
+                // 写入缓存
+                try {
+                    sessionStorage.setItem(cacheKey, JSON.stringify(grouped));
+                    sessionStorage.setItem(cacheTimeKey, Date.now().toString());
+                } catch (e) { console.warn('缓存写入失败', e); }
+                
+                // 首次加载完成后，异步加载剩余数据 (延迟增加到 3s，给用户更多反应时间)
+                if (isInitial) {
+                    setTimeout(() => loadHomeData(false), 3000);
+                }
+            },
+            complete: () => {
+                if (isInitial) $('#loadingSkeleton').hide();
+            }
+        });
+    }
+    
+    function renderCategories(grouped, isInitial) {
+        const labels = { movie: '热门电影', tv: '热门剧集', anime: '热门动漫', variety: '热门综艺', shorts: '热门短剧' };
+        let h = '';
+        
+        Object.keys(grouped).forEach(k => {
+            if (!grouped[k].length) return;
+            
+            // 如果已经渲染过这个分类，则更新数据而非重复渲染
+            if (loadedCategories.has(k) && !isInitial) {
+                updateCategoryData(k, grouped[k]);
+                return;
+            }
+            
+            loadedCategories.add(k);
+            h += `
+                <div class="category-section mb-8 sm:mb-12">
+                    <div class="flex items-center justify-between mb-4 px-3 sm:px-4">
+                        <h2 class="text-lg sm:text-xl font-bold text-gray-900 dark:text-white tracking-tight">${labels[k]}</h2>
+                        <a href="/list/${k}" class="text-xs sm:text-sm text-gray-400 hover:text-green-600 flex items-center gap-0.5 transition-colors">
+                            查看更多 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                        </a>
+                    </div>
+                    
+                    <div class="relative group/slide" id="slider-${k}">
+                        <!-- PC端左右切换按钮 -->
+                        <button onclick="slide('${k}', -1)" class="absolute left-0 top-[40%] -translate-y-1/2 z-30 w-10 h-10 -ml-5 bg-white/90 dark:bg-gray-800/90 shadow-xl rounded-full flex items-center justify-center text-gray-700 dark:text-gray-300 opacity-0 group-hover/slide:opacity-100 transition-all hover:scale-110 hover:text-green-600 hidden lg:flex border border-gray-100 dark:border-gray-700 backdrop-blur-sm">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                        </button>
+                        <button onclick="slide('${k}', 1)" class="absolute right-0 top-[40%] -translate-y-1/2 z-30 w-10 h-10 -mr-5 bg-white/90 dark:bg-gray-800/90 shadow-xl rounded-full flex items-center justify-center text-gray-700 dark:text-gray-300 opacity-0 group-hover/slide:opacity-100 transition-all hover:scale-110 hover:text-green-600 hidden lg:flex border border-gray-100 dark:border-gray-700 backdrop-blur-sm">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                        </button>
+
+                        <div class="flex overflow-x-auto gap-3 sm:gap-4 px-3 sm:px-4 pb-4 -mb-4 snap-x scrollbar-hide scroll-smooth" style="scrollbar-width: none;" id="scroll-${k}">`;
+                grouped[k].forEach(v => {
+                    const t = v.title || v.name, r = v.rate || 'HD';
+                    const pillText = v.rate && v.rate.length < 6 ? v.rate : (SRC_MAP[v.source] || '1080资源');
+                    h += `
+                    <a href="/play/${v.id}?source=${v.source||''}&title=${encodeURIComponent(t)}" class="block flex-shrink-0 w-24 sm:w-32 md:w-36 lg:w-40 snap-start group relative transition-all duration-300 hover:z-20">
+                        <div class="relative aspect-[2/3] rounded-lg sm:rounded-xl bg-gray-200 shadow-sm overflow-hidden transition-all duration-300 group-hover:shadow-2xl group-hover:ring-4 group-hover:ring-green-500/20 group-hover:-translate-y-1">
+                            <img data-src="${v.poster}" class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 opacity-0 transition-opacity duration-300" loading="lazy">
+                            
+                            <!-- 角标 -->
+                            <div class="absolute top-1 right-1 px-1.5 py-0.5 bg-[#10b981] text-white text-[10px] sm:text-xs font-bold rounded shadow-sm z-10 tracking-wide">${r}</div>
+                            
+                            <!-- 遮罩与播放按钮 -->
+                            <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center backdrop-blur-[2px]">
+                                <div class="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center shadow-lg transform scale-50 group-hover:scale-100 transition-all duration-300 hover:bg-green-400 bubble-effect">
+                                    <svg class="w-6 h-6 text-white fill-current ml-1" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-2 text-center px-0.5 transition-all duration-300 group-hover:translate-y-1">
+                            <h3 class="text-xs sm:text-sm font-medium text-gray-800 dark:text-gray-200 line-clamp-1 group-hover:text-green-600 transition-colors tracking-tight">${t}</h3>
+                        </div>
+                    </a>`;
+                });
+                h += `</div></div></div>`;
+        });
+        
+        if (isInitial) {
+            $('#videoSections').html(h);
+        } else {
+            $('#videoSections').append(h);
+        }
+        
+        if(window.MoonLazy) window.MoonLazy.refresh();
+    }
+    
+    function updateCategoryData(category, newData) {
+        const container = $(`#scroll-${category}`);
+        if (!container.length) return;
+        
+        // 获取已有的ID，避免重复
+        const existingIds = new Set();
+        container.find('a').each(function() {
+            const href = $(this).attr('href');
+            const match = href.match(/\/play\/([^?]+)/);
+            if (match) existingIds.add(match[1]);
+        });
+        
+        // 只添加新数据
+        let newHtml = '';
+        newData.forEach(v => {
+            if (existingIds.has(v.id)) return;
+            
+            const t = v.title || v.name, r = v.rate || 'HD';
+            const SRC_MAP = { 'lzi': '1080资源', 'bfzy': '新浪资源', 'dbm3u8': '豆瓣资源', 'hnm3u8': '红牛资源', 'mtzy': '茅台资源', 'ryzy': '如意资源' };
+            const pillText = v.rate && v.rate.length < 6 ? v.rate : (SRC_MAP[v.source] || '1080资源');
+            
+            newHtml += `
+            <a href="/play/${v.id}?source=${v.source||''}&title=${encodeURIComponent(t)}" class="block flex-shrink-0 w-24 sm:w-32 md:w-36 lg:w-40 snap-start group relative transition-all duration-300 hover:z-20">
+                <div class="relative aspect-[2/3] rounded-lg sm:rounded-xl bg-gray-200 shadow-sm overflow-hidden transition-all duration-300 group-hover:shadow-2xl group-hover:ring-4 group-hover:ring-green-500/20 group-hover:-translate-y-1">
+                    <img data-src="${v.poster}" class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 opacity-0 transition-opacity duration-300" loading="lazy">
+                    <div class="absolute top-1 right-1 px-1.5 py-0.5 bg-[#10b981] text-white text-[10px] sm:text-xs font-bold rounded shadow-sm z-10 tracking-wide">${r}</div>
+                    <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center backdrop-blur-[2px]">
+                        <div class="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center shadow-lg transform scale-50 group-hover:scale-100 transition-all duration-300 hover:bg-green-400 bubble-effect">
+                            <svg class="w-6 h-6 text-white fill-current ml-1" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-2 text-center px-0.5 transition-all duration-300 group-hover:translate-y-1">
+                    <h3 class="text-xs sm:text-sm font-medium text-gray-800 dark:text-gray-200 line-clamp-1 group-hover:text-green-600 transition-colors tracking-tight">${t}</h3>
+                </div>
+            </a>`;
+        });
+        
+        if (newHtml) {
+            container.append(newHtml);
+            if(window.MoonLazy) window.MoonLazy.refresh();
+        }
+    }
+    
+    // 启动渐进式加载
+    loadHomeData(true);
+
+    // 滑动控制函数
+    window.slide = function(key, direction) {
+        const container = document.getElementById(`scroll-${key}`);
+        if(container) {
+            const scrollAmount = container.clientWidth * 0.8;
+            container.scrollBy({ left: direction * scrollAmount, behavior: 'smooth' });
+        }
+    };
+
+    // 清空历史记录
+    window.clearHistory = function() {
+        if(!confirm('确定要清空观看历史吗？')) return;
+        
+        // 1. 无论是否登录，首先清空本地记录，防止双向同步逻辑再次上传
+        localStorage.removeItem('moontv_play_history');
+        $('#historyScroll').empty();
+        $('#continueWatching').addClass('hidden');
+
+        const token = localStorage.getItem('auth_token');
+        if (token) {
+            // 2. 登录用户：发送清空服务器端记录请求
+            $.ajax({
+                url: '/api/playrecord?source=all&id=all', // 使用URL参数而不是body
+                method: 'DELETE',
+                headers: { 'Authorization': 'Bearer ' + token },
+                success: function(res) {
+                    if (res.code === 200) {
+                        // alert('清空成功'); // 静默清空，体验更好
+                    } else {
+                        // 既然已经清空本地了，服务端失败也只能提示一下，或者静默
+                        console.warn(res.msg || '服务端清空失败');
+                    }
+                },
+                error: function(xhr) {
+                    console.error('清空失败:', xhr);
+                }
+            });
+        }
+    };
+
+    // 加载观看历史
+    loadHistory();
+    window.removeFavorite = function(source, id) {
+        if (!confirm('确定要取消收藏吗？')) return;
+        const token = localStorage.getItem('auth_token');
+        $.ajax({
+            url: '/api/favorite',
+            method: 'DELETE',
+            data: { source: source, id: id, token: token },
+            success: function(res) {
+                if (res.code === 200) {
+                    loadFavorites(); // Reload list
+                } else {
+                    alert(res.msg || '操作失败');
+                }
+            }
+        });
+    }
+
+    function loadFavorites() {
+        $('#favoritesList').html('<div class="col-span-full text-center py-10 text-gray-400">加载中...</div>');
+        $.get('/api/favorite', r => {
+            if (r.code === 200 && r.data) {
+                // 兼容处理：后端可能返回对象(Map)或数组
+                const items = Array.isArray(r.data) ? r.data : Object.values(r.data);
+                
+                if (items.length > 0) {
+                    $('#fav-count').text(`(${items.length})`);
+                    let h = '';
+                    items.forEach(it => {
+                        const t = it.title || '未知';
+                        h += `
+                        <div class="block group relative transition-all duration-300 hover:z-10">
+                            <a href="/play/${it.id}?source=${it.source}&title=${encodeURIComponent(t)}" class="block">
+                                <div class="relative aspect-[2/3] rounded-xl overflow-hidden bg-gray-200 shadow-sm ring-1 ring-black/5 transition-all duration-300 group-hover:shadow-lg group-hover:ring-2 group-hover:ring-green-500/30 group-hover:-translate-y-1">
+                                    <img data-src="${it.poster}" class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 opacity-0 transition-opacity duration-300" loading="lazy">
+                                    <div class="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                        <div class="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center shadow-lg transform scale-50 group-hover:scale-100 transition-transform">
+                                            <svg class="w-5 h-5 text-white fill-current ml-0.5" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mt-2 text-center px-1">
+                                    <h3 class="text-xs sm:text-sm font-bold text-gray-800 dark:text-gray-200 line-clamp-1 group-hover:text-green-600 transition-colors">${t}</h3>
+                                </div>
+                            </a>
+                            <button onclick="removeFavorite('${it.source}', '${it.id}')" class="absolute top-1 right-1 p-1 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500" title="取消收藏">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                            </button>
+                        </div>`;
+                    });
+                    $('#favoritesList').html(h).removeClass('hidden');
+                    if(window.MoonLazy) window.MoonLazy.refresh();
+                    $('#fav-empty').addClass('hidden');
+                } else {
+                    $('#fav-count').text('');
+                    $('#favoritesList').empty().addClass('hidden');
+                    $('#fav-empty').removeClass('hidden');
+                }
+            } else {
+                $('#fav-count').text('');
+                $('#favoritesList').empty().addClass('hidden');
+                $('#fav-empty').removeClass('hidden');
+            }
+        });
+    }
+});
+</script>
+{/block}

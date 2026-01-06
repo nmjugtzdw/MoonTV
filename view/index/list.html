@@ -1,0 +1,151 @@
+{extend name="layout" /}
+
+{block name="content"}
+<div class="mb-5 sm:mb-8">
+    <div class="flex flex-col mb-4 sm:mb-6 px-1">
+        <h1 class="text-2xl sm:text-3xl font-black text-gray-900 leading-tight">{$title}</h1>
+        <p class="text-xs sm:text-sm text-gray-400 mt-1">为您精选优质影视资源</p>
+    </div>
+    
+    <div class="bg-gray-100/50 dark:bg-gray-800/40 rounded-2xl p-4 sm:p-6 border border-white dark:border-gray-700 shadow-sm space-y-4">
+        <!-- 年代 -->
+        <div class="flex items-start gap-4">
+            <span class="text-gray-400 text-[13px] font-medium pt-1 min-w-[2.5rem]">年代</span>
+            <div class="flex flex-wrap gap-2" id="yearOptions"></div>
+        </div>
+        
+        <!-- 地区/语言 -->
+        <div class="flex items-start gap-4 border-t border-white/60 dark:border-gray-700 pt-4">
+            <span class="text-gray-400 text-[13px] font-medium pt-1 min-w-[2.5rem]">语言</span>
+            <div class="flex flex-wrap gap-2" id="areaOptions">
+                <button class="filter-btn active" data-type="area" data-value="">全部</button>
+                <button class="filter-btn" data-type="area" data-value="国语">国语</button>
+                <button class="filter-btn" data-type="area" data-value="粤语">粤语</button>
+                <button class="filter-btn" data-type="area" data-value="英语">英语</button>
+                <button class="filter-btn" data-type="area" data-value="韩语">韩语</button>
+                <button class="filter-btn" data-type="area" data-value="日语">日语</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .filter-btn { padding: 0.25rem 0.85rem; border-radius: 9999px; font-size: 0.8rem; color: #6b7280; border: 1px solid transparent; background: transparent; transition: all 0.2s; }
+    .filter-btn:hover { color: #10b981; }
+    .filter-btn.active { color: #10b981; background-color: #fff; font-weight: 700; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+</style>
+
+<div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-x-6 gap-y-10 sm:gap-x-8 sm:gap-y-12" id="video-list">
+    <div class="col-span-full text-center py-20 text-gray-400 text-sm">正在加载中...</div>
+</div>
+
+<div class="mt-8 flex justify-center py-4" id="loadMoreContainer" style="display: none;">
+    <div class="flex items-center gap-2 text-gray-400 text-sm animate-pulse">
+        <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+        <span>加载中...</span>
+    </div>
+</div>
+
+<script>
+    $(document).ready(function() {
+        const type = '{$type}';
+        let currentPage = 1, isLoading = false, hasMore = true, currentYear = '', currentArea = '';
+        const itemsPerPage = 24;
+
+        // 无限滚动观察器
+        const observer = new IntersectionObserver((entries) => {
+            if (entries[0].isIntersecting && !isLoading && hasMore) {
+                currentPage++;
+                loadList(false);
+            }
+        }, { rootMargin: '100px' });
+        
+        observer.observe(document.getElementById('loadMoreContainer'));
+
+        (function initYears() {
+            const curr = new Date().getFullYear();
+            let html = '<button class="filter-btn active" data-type="year" data-value="">全部</button>';
+            for (let i = 0; i < 5; i++) {
+                const y = curr - i;
+                html += `<button class="filter-btn" data-type="year" data-value="${y}">${y}</button>`;
+            }
+            html += `<button class="filter-btn" data-type="year" data-value="${curr-5}-${curr-10}">前几年</button>`;
+            html += `<button class="filter-btn" data-type="year" data-value="更早">更早</button>`;
+            $('#yearOptions').html(html);
+        })();
+
+        $(document).on('click', '.filter-btn', function() {
+            $(this).parent().find('.filter-btn').removeClass('active');
+            $(this).addClass('active');
+            const bt = $(this).data('type'), val = $(this).data('value');
+            if (bt === 'year') currentYear = val; else if (bt === 'area') currentArea = val;
+            currentPage = 1; loadList(true);
+        });
+
+        function loadList(reset = false) {
+            if (isLoading) return;
+            isLoading = true;
+            if (reset) {
+                $('#video-list').html('<div class="col-span-full text-center py-20 text-gray-400 text-sm">正在加载中...</div>');
+                $('#loadMoreContainer').hide();
+                allLoadedItems = [];
+            } else {
+                $('#loadMoreContainer').show();
+            }
+            
+            $.ajax({
+                url: '/api/recommend',
+                data: { type, page: currentPage, limit: itemsPerPage, year: currentYear, area: currentArea },
+                success: function(res) {
+                    if (res.code === 200 && res.data.length > 0) {
+                        renderVideos(res.data, reset);
+                        // 如果返回数量小于请求数量，说明没有更多了
+                        hasMore = res.data.length >= 12;
+                        hasMore ? $('#loadMoreContainer').removeClass('hidden').show() : $('#loadMoreContainer').hide();
+                    } else {
+                        if (reset) $('#video-list').html('<div class="col-span-full text-center text-gray-400 py-16">暂未找到符合条件的影片</div>');
+                        hasMore = false;
+                        $('#loadMoreContainer').hide();
+                    }
+                },
+                error: () => { isLoading = false; $('#loadMoreContainer').hide(); },
+                complete: () => { isLoading = false; }
+            });
+        }
+
+        function renderVideos(items, reset) {
+            const SRC_MAP = { 'lzi': '1080资源', 'bfzy': '新浪资源', 'dbm3u8': '豆瓣资源', 'hnm3u8': '红牛资源', 'mtzy': '茅台资源', 'ryzy': '如意资源' };
+            let h = '';
+            items.forEach(it => {
+                const t = it.title || it.vod_name, p = it.poster || it.vod_pic, r = it.rate || 'HD';
+                // 尝试提取简短信息或来源
+                const pillText = (it.rate && it.rate.length < 6) ? it.rate : (SRC_MAP[it.source] || '1080资源');
+                
+                h += `
+                <a href="/play/${it.id||it.vod_id}?source=${it.source||''}&title=${encodeURIComponent(t)}" class="block group relative transition-all duration-300 hover:z-20">
+                    <div class="relative aspect-[2/3] rounded-xl bg-gray-200 shadow-sm overflow-hidden transition-all duration-300 group-hover:shadow-2xl group-hover:ring-4 group-hover:ring-green-500/20 group-hover:-translate-y-1">
+                        <img data-src="${p}" class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 opacity-0 transition-opacity duration-300" loading="lazy" onerror="this.src='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=='">
+                        
+                        <!-- 角标 -->
+                        <div class="absolute top-2 right-2 px-2 py-0.5 bg-[#10b981] text-white text-[12px] font-bold rounded-md shadow-sm z-10 box-shadow-md tracking-wide">${r}</div>
+                        
+                        <!-- 遮罩与播放按钮 -->
+                        <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center backdrop-blur-[2px]">
+                            <div class="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center shadow-lg transform scale-50 group-hover:scale-100 transition-all duration-300 hover:bg-green-400 bubble-effect">
+                                <svg class="w-6 h-6 text-white fill-current ml-1" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-3 text-center px-1 transition-all duration-300 group-hover:translate-y-1">
+                        <h3 class="text-[14px] font-bold text-gray-800 dark:text-gray-200 line-clamp-1 group-hover:text-green-600 transition-colors tracking-tight">${t}</h3>
+                    </div>
+                </a>`;
+            });
+            if (reset) $('#video-list').html(h); else $('#video-list').append(h);
+            if(window.MoonLazy) window.MoonLazy.refresh();
+        }
+        loadList(true);
+    });
+</script>
+{/block}

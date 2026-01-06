@@ -1,0 +1,121 @@
+<?php
+/**
+ * 从 config.json 初始化配置到数据库
+ * 访问: http://your-domain.com/init_config_from_json.php
+ */
+
+header('Content-Type: text/html; charset=utf-8');
+
+// 引入 ThinkPHP 并初始化应用
+require __DIR__ . '/../vendor/autoload.php';
+
+use think\App;
+use think\facade\Db;
+use app\service\ConfigService;
+
+// 初始化 ThinkPHP 应用（这样才能使用 Facade）
+$app = new App();
+$app->initialize();
+
+$rootDir = __DIR__ . '/../';
+// 尝试多个可能的路径
+$possiblePaths = [
+    $rootDir . 'config.json',                    // 网站根目录/config.json
+    $rootDir . '../config.json',                 // 上一级目录/config.json
+    __DIR__ . '/config.json',                    // public/config.json
+    '/www/wwwroot/moontv.zzzmxxkj.com/config.json', // 绝对路径
+];
+
+$configJsonPath = null;
+foreach ($possiblePaths as $path) {
+    // 检查路径是否在允许的目录内（避免 open_basedir 错误）
+    if (@file_exists($path)) {
+        $configJsonPath = $path;
+        break;
+    }
+}
+
+echo "<h1>从 config.json 初始化配置</h1>";
+echo "<pre>";
+
+try {
+    // 1. 读取 config.json
+    if (!$configJsonPath) {
+        $triedPaths = implode("\n   ", $possiblePaths);
+        throw new Exception("config.json 文件未找到。已尝试以下路径：\n   $triedPaths\n\n请将 config.json 文件放在网站根目录 (/www/wwwroot/moontv.zzzmxxkj.com/config.json)");
+    }
+    
+    if (!file_exists($configJsonPath)) {
+        throw new Exception("config.json 文件不存在: $configJsonPath");
+    }
+    
+    $configJson = file_get_contents($configJsonPath);
+    $fileConfig = json_decode($configJson, true);
+    
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        throw new Exception("config.json 格式错误: " . json_last_error_msg());
+    }
+    
+    echo "✅ 成功读取 config.json\n";
+    echo "   文件路径: $configJsonPath\n";
+    echo "   视频源数量: " . count($fileConfig['api_site'] ?? []) . "\n\n";
+    
+    // 2. 获取当前数据库配置
+    $currentConfig = ConfigService::getConfig();
+    
+    // 3. 转换 api_site 为 SourceConfig 格式
+    $sourceConfig = [];
+    foreach ($fileConfig['api_site'] ?? [] as $key => $site) {
+        $sourceConfig[] = [
+            'key' => $key,
+            'name' => $site['name'] ?? '',
+            'api' => $site['api'] ?? '',
+            'detail' => $site['detail'] ?? '',
+            'from' => 'config',
+            'disabled' => false,
+        ];
+    }
+    
+    echo "✅ 成功转换视频源配置\n";
+    echo "   转换后源数量: " . count($sourceConfig) . "\n\n";
+    
+    // 4. 合并配置
+    $mergedConfig = $currentConfig;
+    
+    // 更新 SourceConfig
+    $mergedConfig['SourceConfig'] = $sourceConfig;
+    
+    // 更新 ConfigFile（保存原始 JSON）
+    $mergedConfig['ConfigFile'] = $configJson;
+    
+    // 更新 cache_time 到 SiteConfig
+    if (isset($fileConfig['cache_time'])) {
+        $mergedConfig['SiteConfig']['SiteInterfaceCacheTime'] = $fileConfig['cache_time'];
+    }
+    
+    // 5. 保存到数据库
+    ConfigService::saveConfig($mergedConfig);
+    
+    echo "✅ 成功保存配置到数据库\n\n";
+    
+    // 6. 验证
+    $savedConfig = ConfigService::getConfig();
+    $savedSources = $savedConfig['SourceConfig'] ?? [];
+    
+    echo "📊 验证结果:\n";
+    echo "   数据库中的源数量: " . count($savedSources) . "\n";
+    echo "   前5个源:\n";
+    foreach (array_slice($savedSources, 0, 5) as $source) {
+        echo "     - {$source['key']}: {$source['name']}\n";
+    }
+    
+    echo "\n✅ 配置初始化完成！\n";
+    echo "\n⚠️  安全提示: 请删除本文件 (init_config_from_json.php) 以防止被他人访问\n";
+    
+} catch (Exception $e) {
+    echo "❌ 错误: " . $e->getMessage() . "\n";
+    echo "\n堆栈跟踪:\n" . $e->getTraceAsString() . "\n";
+}
+
+echo "</pre>";
+

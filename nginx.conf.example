@@ -1,0 +1,24 @@
+server {
+    listen 80;
+    server_name moontv.example.com;
+    root /www/wwwroot/moontv/public; # 指向 public 目录
+
+    index index.php index.html index.htm;
+
+    location / {
+        if (!-e $request_filename) {
+            rewrite  ^(.*)$  /index.php?s=/$1  last;
+        }
+    }
+
+    location ~ \.php$ {
+        fastcgi_pass   127.0.0.1:9000; # 或者 unix:/tmp/php-cgi.sock
+        fastcgi_index  index.php;
+        fastcgi_param  SCRIPT_FILENAME  $document_root$fastcgi_script_name;
+        include        fastcgi_params;
+    }
+
+    location ~ /\.ht {
+        deny  all;
+    }
+}
