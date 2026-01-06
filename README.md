@@ -62,3 +62,5 @@ MoonTV 是一个基于 ThinkPHP 6 + Tailwind CSS 开发的现代化影视聚合�
 4.  **运行迁移**: 导入 `install.sql` 和 `update.sql`
 5.  **目录权限**: 确保 `runtime` 和 `public/cache` 目录可写
 
+## 测试网址
+https://moontv.zzzmxxkj.com/
