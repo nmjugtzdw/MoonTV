@@ -1,49 +1,64 @@
-# PHP-MoonTV
+# MoonTV - 聚合影视点播系统
 
-基于 ThinkPHP 6 重构的 MoonTV 后端。
+MoonTV 是一个基于 ThinkPHP 6 + Tailwind CSS 开发的现代化影视聚合与点播系统。它集成了多源采集、智能检索、在线播放、会员管理、弹幕互动等核心功能，旨在为用户提供类似 Netflix/YouTube 的流畅观影体验。
 
-## 环境要求
-- PHP >= 7.4
-- MySQL >= 5.6
-- Nginx / Apache
-- Composer
+## 📅 项目概况
 
-## 安装步骤
+- **框架内核**: ThinkPHP 6.0 (PHP >= 7.2)
+- **前端技术**: Tailwind CSS, jQuery, ArtPlayer 播放器
+- **数据库**: MySQL 5.7+
+- **关键特性**: 响应式设计 (PC/Mobile)、PWA 支持、懒加载、服务端渲染 (SSR)
 
-1. **安装依赖**
-   ```bash
-   cd php-moontv
-   composer install
-   ```
+## ✨ 核心功能亮点
 
-2. **数据库配置**
-   - 导入 `scripts/` 目录下的 SQL 文件到 MySQL 数据库（如果尚未初始化）。
-   - 确保 `users`, `admin_config`, `vip_packages`, `orders`, `redemption_codes` 等表已创建。
-   - 修改 `config/database.php`，或者更推荐使用环境变量配置。
+### 1. 智能播放体验
+- **自动切源**: 当检测到视频加载失败或 HLS 错误时，系统会自动在后台搜索并切换到其他可用的高清源，且尝试保持当前集数进度，实现无感切换。
+- **断点续播**: 利用 localStorage 和云端双向同步技术，记录精确到秒的播放进度。支持跨设备同步，从上次观看的位置无缝继续。
+- **高级弹幕**: 集成 ArtPlayer 弹幕插件，支持用户发送弹幕。VIP/管理员有特殊徽章标识。
+- **极致性能**: 视频列表使用懒加载 (LazyLoad v2.0)，支持 Base64/SVG 占位图，优化首屏加载速度。播放源测速与防抖渲染避免了页面卡顿。
 
-3. **配置 Nginx**
-   参考 `nginx.conf.example` 将网站根目录指向 `public` 目录，并配置 URL 重写规则。
+### 2. 强大的资源聚合
+- **多源搜索**: 后台配置了 30+ 个主流资源站 API (如量子、暴风、非凡等)，支持全网即时搜索。
+- **智能筛选**: 搜索结果支持按 来源/年份/标题 筛选，并可按年份排序。
+- **错误处理**: 自动过滤无效源，针对搜索结果过大导致的 LocalStorage 溢出问题做了自动降级与精简处理。
 
-4. **目录权限**
-   确保 `runtime` 目录有写入权限。
-   ```bash
-   chmod -R 777 runtime
-   ```
+### 3. 会员与权限系统
+- **VIP 体系**: 支持卡密充值、在线支付（对接 V免签/易支付）。
+- **权限控制**: 
+    - VIP 可观看完整版、随意选集、倍速播放。
+    - 普通用户仅支持试看前 6 分钟或限制选集（只能顺序观看）。
+- **个人中心**: 包含 观看历史、我的收藏、订单管理、修改密码 等功能。
 
-## 核心功能
-- **聚合搜索**: 并发请求多个 CMS 源，快速响应。
-- **用户系统**: 注册、登录、JWT 认证。
-- **VIP 系统**: 易支付对接、卡密兑换。
-- **数据管理**: 播放记录、收藏、搜索历史云同步。
-- **TVBox**: 提供标准 TVBox 订阅接口。
+### 4. 移动端优先设计
+- **响应式布局**: 完美适配 iOS/Android 设备，提供沉浸式全屏播放体验。
+- **手势操作**: 播放器支持双击暂停、长按倍速、滑动调节音量/亮度。
+- **App 级体验**: PWA 支持，可添加到主屏幕作为原生 Web App 运行。
 
-## API 文档
-- `GET /api/search?q=keyword&sources=qq,iqiyi`: 聚合搜索
-- `GET /api/detail?source=qq&id=123`: 视频详情
-- `POST /api/login`: 用户登录
-- `POST /api/vip/order/create`: 创建支付订单
-- `GET /api/tvbox/config`: TVBox 订阅地址
+## 🛠️ 技术架构细节
 
-## 注意事项
-- 本项目依赖 `guzzlehttp/guzzle` 进行并发请求，请确保服务器网络正常。
-- 生产环境请修改 `app/middleware/AuthCheck.php` 中的 JWT 密钥。
+### 目录结构
+- `app/controller/api`: 核心业务逻辑接口 (Search, Detail, PlayRecord, Auth...)
+- `view/index`: 前端模板文件 (index.html, play.html, search.html...)
+- `public/static`: 静态资源 (LazyLoad.js, CSS)
+- `config`: 系统配置文件
+
+### 关键优化记录
+1.  **播放记录同步**: 
+    - 实现了 `localStorage` 与 MySQL 数据库的双向合并策略。
+    - 采用 `navigator.sendBeacon` + `Blob` 确保在页面卸载/返回时也能 100% 成功提交进度。
+2.  **网络性能**:
+    - 首页数据支持 `sessionStorage` 缓存，避免返回时重复加载。
+    - 播放源测速 (Latency Test) 增加了防抖机制，防止短时间内触发大量 DOM 重绘。
+    - 修复了 Data URI 图片请求错误导致的浏览器阻塞问题。
+3.  **稳定性**:
+    - 播放页卸载时自动清理 HLS 流和定时器，防止内存泄露和白屏卡顿。
+    - 搜索结果过大时自动降级存储，防止 QuotaExceededError 崩溃。
+
+## 🚀 部署说明
+
+1.  **环境要求**: PHP 7.3+, MySQL 5.7, Nginx/Apache
+2.  **安装依赖**: `composer install`
+3.  **数据库配置**: 修改 `.env` 文件中的数据库连接信息
+4.  **运行迁移**: 导入 `install.sql` 和 `update.sql`
+5.  **目录权限**: 确保 `runtime` 和 `public/cache` 目录可写
+
